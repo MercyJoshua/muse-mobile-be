@@ -194,3 +194,61 @@ def get_me(
     current_user: User = Depends(get_current_user),
 ):
     return current_user
+
+@router.post("/logout")
+def logout(
+    token_data: RefreshTokenRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    token_hash = hash_refresh_token(token_data.refresh_token)
+
+    refresh_token_record = (
+        db.query(RefreshToken)
+        .filter(
+            RefreshToken.token_hash == token_hash,
+            RefreshToken.user_id == current_user.id,
+        )
+        .first()
+    )
+
+    if not refresh_token_record:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Refresh token not found.",
+        )
+
+    refresh_token_record.revoked = True
+    refresh_token_record.revoked_at = datetime.now(timezone.utc)
+
+    db.commit()
+
+    return {
+        "message": "Successfully logged out."
+    }
+
+@router.post("/logout-all")
+def logout_all(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    (
+        db.query(RefreshToken)
+        .filter(
+            RefreshToken.user_id == current_user.id,
+            RefreshToken.revoked == False,
+        )
+        .update(
+        {
+            RefreshToken.revoked: True,
+            RefreshToken.revoked_at: datetime.now(timezone.utc),
+        },
+        synchronize_session=False,
+        )
+    )
+
+    db.commit()
+
+    return {
+        "message": "Successfully logged out from all devices."
+    }
